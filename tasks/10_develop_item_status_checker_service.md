@@ -33,7 +33,7 @@ Triển khai service trong `Unified API Service` để kiểm tra trạng thái 
             String requestId = requestDTO.getRequestId() != null ? requestDTO.getRequestId() : MDC.get("requestId");
             MDC.put("requestId", requestId); // Đảm bảo requestId có trong MDC cho service này
 
-            logger.info("Checking status for item type: {} with requestId: {}", requestDTO.getType(), requestId);
+            log.info("Checking status for item type: {} with requestId: {}", requestDTO.getType(), requestId);
 
             String itemId = requestDTO.getData().containsKey("id") ? requestDTO.getData().get("id").toString() : UUID.randomUUID().toString(); // Lấy ID hoặc tạo mới
 
@@ -66,7 +66,7 @@ Triển khai service trong `Unified API Service` để kiểm tra trạng thái 
                 response.setMessage("Unknown item type provided.");
             }
 
-            logger.info("Finished checking status for item type: {} with status: {}. RequestId: {}", requestDTO.getType(), response.getStatus(), requestId);
+            log.info("Finished checking status for item type: {} with status: {}. RequestId: {}", requestDTO.getType(), response.getStatus(), requestId);
             return response;
         }
     }

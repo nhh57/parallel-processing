@@ -10,6 +10,7 @@ import com.example.processingservice.dto.UnifiedApiRequestDTO;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.ObjectMapper; // Để chuyển đổi Object sang Map
 import jakarta.transaction.Transactional; // Để đảm bảo giao dịch DB
+import lombok.extern.slf4j.Slf4j; // Import Slf4j
 
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 
+@Slf4j // Add Slf4j annotation
 @Service
 public class CardPinProcessingService {
 
@@ -69,7 +71,7 @@ public class CardPinProcessingService {
         List<CompletableFuture<Void>> cardFutures = cards.stream()
                 .map(card -> processSingleCard(card, requestId)
                         .exceptionally(ex -> {
-                            System.err.println("Error processing card " + card.getId() + ": " + ex.getMessage());
+                            log.error("Error processing card {}: {}", card.getId(), ex.getMessage(), ex);
                             card.setStatus("FAILED_PROCESSING");
                             cardRepository.save(card);
                             return null;
@@ -79,7 +81,7 @@ public class CardPinProcessingService {
         List<CompletableFuture<Void>> pinFutures = pins.stream()
                 .map(pin -> processSinglePin(pin, requestId)
                         .exceptionally(ex -> {
-                            System.err.println("Error processing pin " + pin.getId() + ": " + ex.getMessage());
+                            log.error("Error processing pin {}: {}", pin.getId(), ex.getMessage(), ex);
                             pin.setStatus("FAILED_PROCESSING");
                             pinRepository.save(pin);
                             return null;
@@ -93,41 +95,41 @@ public class CardPinProcessingService {
         );
 
         // Có thể thêm logic sau khi tất cả hoàn thành, ví dụ: log tổng kết
-        allFutures.thenRun(() -> System.out.println("All mixed items processing completed for requestId: " + requestId));
+        allFutures.thenRun(() -> log.info("All mixed items processing completed for requestId: {}", requestId));
     }
-
+ 
     @Transactional
     protected CompletableFuture<Void> processSingleCard(Card card, String requestId) {
-        System.out.println("Processing card: " + card + " with requestId: " + requestId);
+        log.info("Processing card: {} with requestId: {}", card, requestId);
         Map<String, Object> cardData = objectMapper.convertValue(card, Map.class);
-        System.out.println("Card Data being sent: " + cardData);
+        log.info("Card Data being sent: {}", cardData);
         UnifiedApiRequestDTO requestDTO = new UnifiedApiRequestDTO(ItemType.CARD, cardData, requestId);
 
         return externalApiClient.callUnifiedApiService(requestDTO)
                 .doOnNext(this::handleProcessingResponse)
-                .doOnError(e -> System.err.println("Error processing card " + card.getId() + ": " + e.getMessage()))
+                .doOnError(e -> log.error("Error processing card {}: {}", card.getId(), e.getMessage(), e))
                 .then()
                 .toFuture();
     }
-
+ 
     @Transactional
     protected CompletableFuture<Void> processSinglePin(Pin pin, String requestId) {
-        System.out.println("Processing pin: " + pin.getPinCode() + " with requestId: " + requestId);
+        log.info("Processing pin: {} with requestId: {}", pin.getPinCode(), requestId);
         Map<String, Object> pinData = objectMapper.convertValue(pin, Map.class);
-        System.out.println("Pin Data being sent: " + pinData);
+        log.info("Pin Data being sent: {}", pinData);
         UnifiedApiRequestDTO requestDTO = new UnifiedApiRequestDTO(ItemType.PIN, pinData, requestId);
 
         return externalApiClient.callUnifiedApiService(requestDTO)
                 .doOnNext(this::handleProcessingResponse)
-                .doOnError(e -> System.err.println("Error processing pin " + pin.getId() + ": " + e.getMessage()))
+                .doOnError(e -> log.error("Error processing pin {}: {}", pin.getId(), e.getMessage(), e))
                 .then()
                 .toFuture();
     }
-
+ 
     @Transactional
     protected void handleProcessingResponse(ProcessedItemResponse response) {
         if (response != null) {
-            System.out.println("Received response for " + response.getType() + " with ID: " + response.getId() + ", Status: " + response.getStatus() + ", RequestId: " + response.getRequestId());
+            log.info("Received response for {} with ID: {}, Status: {}, RequestId: {}", response.getType(), response.getId(), response.getStatus(), response.getRequestId());
             if (response.getType() == ItemType.CARD) {
                 cardRepository.findById(response.getId()).ifPresent(card -> {
                     card.setStatus(response.getStatus());
@@ -140,7 +142,7 @@ public class CardPinProcessingService {
                 });
             }
         } else {
-            System.err.println("Received null response from Unified API Service.");
+            log.error("Received null response from Unified API Service.");
         }
     }
 }

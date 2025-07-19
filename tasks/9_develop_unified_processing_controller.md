@@ -47,20 +47,20 @@ Tạo REST Controller trong `Unified API Service` để nhận các yêu cầu x
             // Đặt requestId vào MDC nếu nó được truyền qua header
             if (requestIdHeader != null && !requestIdHeader.isEmpty()) {
                 MDC.put("requestId", requestIdHeader);
-                logger.info("Received request with X-Request-ID: {}", requestIdHeader);
+                log.info("Received request with X-Request-ID: {}", requestIdHeader);
             } else if (requestDTO.getRequestId() != null && !requestDTO.getRequestId().isEmpty()) {
                 MDC.put("requestId", requestDTO.getRequestId());
-                logger.info("Received request with requestId in DTO: {}", requestDTO.getRequestId());
+                log.info("Received request with requestId in DTO: {}", requestDTO.getRequestId());
             } else {
                 // Nếu không có requestId, tạo một cái mới cho mục đích logging nội bộ
                 String newRequestId = java.util.UUID.randomUUID().toString();
                 MDC.put("requestId", newRequestId);
-                logger.info("Received request without external requestId. Generated new: {}", newRequestId);
+                log.info("Received request without external requestId. Generated new: {}", newRequestId);
             }
 
-            logger.info("Processing request for item type: {}", requestDTO.getType());
+            log.info("Processing request for item type: {}", requestDTO.getType());
             ProcessedItemResponse response = itemStatusCheckerService.checkStatus(requestDTO);
-            logger.info("Finished processing request for item type: {}. Response status: {}", requestDTO.getType(), response.getStatus());
+            log.info("Finished processing request for item type: {}. Response status: {}", requestDTO.getType(), response.getStatus());
 
             MDC.remove("requestId"); // Xóa requestId khỏi MDC trước khi trả về response
             return ResponseEntity.ok(response);
