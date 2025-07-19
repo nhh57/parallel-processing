@@ -1,0 +1,6 @@
+com\example\unifiedapiservice\controller\UnifiedProcessingController.class
+com\example\unifiedapiservice\UnifiedApiServiceApplication.class
+com\example\unifiedapiservice\service\ItemStatusCheckerService.class
+com\example\unifiedapiservice\dto\ItemType.class
+com\example\unifiedapiservice\dto\UnifiedApiRequestDTO.class
+com\example\unifiedapiservice\dto\ProcessedItemResponse.class
