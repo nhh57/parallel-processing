@@ -35,9 +35,9 @@ public class CardPinProcessingService {
     public CardPinProcessingService(CardRepository cardRepository,
                                     PinRepository pinRepository,
                                     ExternalApiClient externalApiClient,
-                                    @Value("${app.processing.thread-pool.core-size:50}") int corePoolSize,
-                                    @Value("${app.processing.thread-pool.max-size:100}") int maxPoolSize,
-                                    @Value("${app.processing.thread-pool.queue-capacity:5000}") int queueCapacity) {
+                                    @Value("${app.processing.thread-pool.core-size:2}") int corePoolSize,
+                                    @Value("${app.processing.thread-pool.max-size:4}") int maxPoolSize,
+                                    @Value("${app.processing.thread-pool.queue-capacity:50}") int queueCapacity) {
         this.cardRepository = cardRepository;
         this.pinRepository = pinRepository;
         this.externalApiClient = externalApiClient;

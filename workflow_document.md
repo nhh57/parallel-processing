@@ -67,6 +67,7 @@ graph TD
 1.  **Nhận Yêu cầu:** `UnifiedProcessingController` nhận yêu cầu `POST` chứa `UnifiedApiRequestDTO` từ `Processing Service` tại endpoint (ví dụ: `/api/check-status`).
 2.  **Ủy quyền Xử lý:** Controller ủy quyền xử lý DTO này cho `ItemStatusCheckerService`.
 3.  **Logic Kiểm tra Trạng thái:** `ItemStatusCheckerService` chứa logic để kiểm tra trạng thái của `Card` hoặc `Pin` dựa trên `ItemType` và dữ liệu được cung cấp trong `UnifiedApiRequestDTO`. Logic này có thể bao gồm việc tra lookup trong cơ sở dữ liệu nội bộ hoặc thực hiện các kiểm tra nghiệp vụ khác.
+    *   **Dedicated Executor for CPU-bound tasks**: `ItemStatusCheckerService` now uses a dedicated `ExecutorService` (configured via `app.status-checker.thread-pool.size` in `application.properties`) for its `CompletableFuture.supplyAsync()` calls. This ensures that CPU-intensive status checking logic runs on an appropriately sized thread pool, preventing overload of the shared `ForkJoinPool.commonPool()` and providing better isolation and control over CPU utilization.
 4.  **Trả về Phản hồi:** Sau khi kiểm tra, `ItemStatusCheckerService` trả về một `ProcessedItemResponse` chứa ID của đối tượng, `ItemType`, và trạng thái xử lý (`status`) cho `Processing Service`.
 
 ## 4. Cấu trúc Thư mục Chính (Ví dụ)
@@ -97,8 +98,10 @@ graph TD
     │   │   ├── dto                 (Các DTO nhận/gửi từ Processing Service)
     │   │   │   ├── ProcessedItemResponse.java
     │   │   │   └── UnifiedApiRequestDTO.java
-    │   │   └── service             (Logic kiểm tra trạng thái)
-    │   │       └── ItemStatusCheckerService.java
+    │   │   ├── service             (Logic kiểm tra trạng thái)
+    │   │   │   └── ItemStatusCheckerService.java
+    │   │   └── config            (Cấu hình các Bean, ví dụ ExecutorService)
+    │   │       └── ExecutorConfig.java
     │   └── src/main/resources
     │       └── application.properties
 ```

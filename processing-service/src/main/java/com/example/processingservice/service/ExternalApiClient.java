@@ -27,7 +27,7 @@ public class ExternalApiClient {
                              @Value("${unified.api.connection-pool-size:200}") int connectionPoolSize,
                              @Value("${unified.api.connect-timeout-millis:5000}") int connectTimeoutMillis,
                              @Value("${unified.api.read-timeout-millis:30000}") int readTimeoutMillis,
-                             @Value("${unified.api.concurrent-calls-limit:1500}") int concurrentCallsLimit,
+                             @Value("${unified.api.concurrent-calls-limit:25}") int concurrentCallsLimit,
                              WebClient.Builder webClientBuilder) {
 
         HttpClient httpClient = HttpClient.create(ConnectionProvider.builder("unified-api-connection-pool")
