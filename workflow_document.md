@@ -53,6 +53,7 @@ graph TD
     *   Trong mỗi tác vụ song song, đối tượng `Card` hoặc `Pin` được chuyển đổi thành `UnifiedApiRequestDTO` (chứa `ItemType` và dữ liệu tương ứng).
     *   `ExternalApiClient` sử dụng `WebClient` để gửi `UnifiedApiRequestDTO` đến `Unified API Service` qua endpoint `/check-status`.
     *   **Cấu hình `WebClient`:** `WebClient` được cấu hình với `HttpClient` tùy chỉnh, sử dụng `ConnectionProvider` có kích thước nhóm kết nối lớn (`unified.api.connection-pool-size`) và thời gian chờ kết nối/đọc (`connect-timeout-millis`, `read-timeout-millis`) được tăng cường để đảm bảo độ bền khi gọi API.
+    *   **Giới hạn cuộc gọi đồng thời (`Semaphore`):** `ExternalApiClient` được trang bị một `java.util.concurrent.Semaphore` để giới hạn số lượng cuộc gọi API đồng thời đến `Unified API Service`. Số lượng permit của `Semaphore` được cấu hình thông qua thuộc tính `unified.api.concurrent-calls-limit` trong `application.properties`. Trước mỗi cuộc gọi API, `ExternalApiClient` sẽ cố gắng `acquire()` một permit. Sau khi cuộc gọi hoàn thành (thành công hoặc thất bại), permit sẽ được `release()` trong khối `doFinally` của `Mono`. Điều này giúp ngăn chặn `WebClient` bị quá tải và lỗi "Pending acquire queue has reached its maximum size".
     *   Phản hồi từ `Unified API Service` là một `Mono<ProcessedItemResponse>`.
     *   **Cơ chế Bất đồng bộ và Non-blocking**: Khi `ExternalApiClient` gọi API, nó sẽ trả về ngay lập tức một đối tượng `Mono` đại diện cho kết quả sẽ có trong tương lai. Tại thời điểm này, luồng hiện tại sẽ **không bị chặn** để chờ phản hồi. Thay vào đó, nó sẽ đăng ký các hàm callback (`doOnNext` để xử lý thành công, `doOnError` để xử lý lỗi) và được giải phóng để thực hiện các tác vụ khác (ví dụ: gửi các yêu cầu API khác cho các thẻ/PIN khác). `WebClient` sử dụng một nhóm luồng I/O riêng biệt để quản lý cuộc gọi HTTP một cách bất đồng bộ. Khi phản hồi từ API trở về, các callback đã đăng ký sẽ được kích hoạt để xử lý dữ liệu và cập nhật cơ sở dữ liệu.
 5.  **Xử lý Phản hồi API (`handleProcessingResponse`):**
@@ -65,7 +66,7 @@ graph TD
 
 1.  **Nhận Yêu cầu:** `UnifiedProcessingController` nhận yêu cầu `POST` chứa `UnifiedApiRequestDTO` từ `Processing Service` tại endpoint (ví dụ: `/api/check-status`).
 2.  **Ủy quyền Xử lý:** Controller ủy quyền xử lý DTO này cho `ItemStatusCheckerService`.
-3.  **Logic Kiểm tra Trạng thái:** `ItemStatusCheckerService` chứa logic để kiểm tra trạng thái của `Card` hoặc `Pin` dựa trên `ItemType` và dữ liệu được cung cấp trong `UnifiedApiRequestDTO`. Logic này có thể bao gồm việc tra cứu trong cơ sở dữ liệu nội bộ hoặc thực hiện các kiểm tra nghiệp vụ khác.
+3.  **Logic Kiểm tra Trạng thái:** `ItemStatusCheckerService` chứa logic để kiểm tra trạng thái của `Card` hoặc `Pin` dựa trên `ItemType` và dữ liệu được cung cấp trong `UnifiedApiRequestDTO`. Logic này có thể bao gồm việc tra lookup trong cơ sở dữ liệu nội bộ hoặc thực hiện các kiểm tra nghiệp vụ khác.
 4.  **Trả về Phản hồi:** Sau khi kiểm tra, `ItemStatusCheckerService` trả về một `ProcessedItemResponse` chứa ID của đối tượng, `ItemType`, và trạng thái xử lý (`status`) cho `Processing Service`.
 
 ## 4. Cấu trúc Thư mục Chính (Ví dụ)
@@ -93,13 +94,13 @@ graph TD
     ├── src/main/java/com/example/unifiedapiservice
     │   ├── controller          (Các REST Controller)
     │   │   └── UnifiedProcessingController.java
-    │   ├── dto                 (Các DTO nhận/gửi từ Processing Service)
-    │   │   ├── ProcessedItemResponse.java
-    │   │   └── UnifiedApiRequestDTO.java
-    │   └── service             (Logic kiểm tra trạng thái)
-    │       └── ItemStatusCheckerService.java
-    └── src/main/resources
-        └── application.properties
+    │   │   ├── dto                 (Các DTO nhận/gửi từ Processing Service)
+    │   │   │   ├── ProcessedItemResponse.java
+    │   │   │   └── UnifiedApiRequestDTO.java
+    │   │   └── service             (Logic kiểm tra trạng thái)
+    │   │       └── ItemStatusCheckerService.java
+    │   └── src/main/resources
+    │       └── application.properties
 ```
 
 ## 5. Các Vấn đề Phi Chức Năng Quan trọng
