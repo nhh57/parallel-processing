@@ -14,14 +14,11 @@ import reactor.netty.resources.ConnectionProvider;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 
 import java.time.Duration;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 @Service
 public class ExternalApiClient {
 
     private final WebClient webClient;
-    private final Semaphore semaphore;
 
     public ExternalApiClient(@Value("${unified.api.base-url}") String unifiedApiBaseUrl,
                              @Value("${unified.api.connection-pool-size:200}") int connectionPoolSize,
@@ -40,24 +37,14 @@ public class ExternalApiClient {
         this.webClient = webClientBuilder.baseUrl(unifiedApiBaseUrl)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .build();
-        this.semaphore = new Semaphore(concurrentCallsLimit);
     }
 
     public Mono<ProcessedItemResponse> callUnifiedApiService(UnifiedApiRequestDTO requestDTO) {
-        return Mono.defer(() -> {
-            try {
-                semaphore.acquire(); // Acquire a permit
-                return webClient.post()
-                        .uri("/check-status") // Endpoint của Unified API Service
-                        .bodyValue(requestDTO)
-                        .retrieve()
-                        .bodyToMono(ProcessedItemResponse.class)
-                        .doFinally(signalType -> semaphore.release()) // Release the permit when the Mono completes
-                        .doOnError(e -> System.err.println("Error calling Unified API Service: " + e.getMessage())); // Xử lý lỗi cơ bản
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return Mono.error(new RuntimeException("Failed to acquire semaphore permit", e));
-            }
-        });
+        return webClient.post()
+                .uri("/check-status") // Endpoint của Unified API Service
+                .bodyValue(requestDTO)
+                .retrieve()
+                .bodyToMono(ProcessedItemResponse.class)
+                .doOnError(e -> System.err.println("Error calling Unified API Service: " + e.getMessage())); // Xử lý lỗi cơ bản
     }
 }

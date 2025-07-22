@@ -1,12 +1,10 @@
 package com.example.processingservice.model;
 
 import lombok.Data;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
 
-@Entity
+@Table("pin")
 @Data
 public class Pin {
     @Id
@@ -15,8 +13,6 @@ public class Pin {
     private String status; // Ví dụ: PENDING, PROCESSED, FAILED
     private String processingRequestId; // Để liên kết với requestId của luồng xử lý
 
-    public Pin(String string, String number, String pending, String string1) {
-    }
 
     public Pin() {
 

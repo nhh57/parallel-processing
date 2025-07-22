@@ -9,18 +9,14 @@ import com.example.processingservice.dto.ProcessedItemResponse;
 import com.example.processingservice.dto.UnifiedApiRequestDTO;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.ObjectMapper; // Để chuyển đổi Object sang Map
-import jakarta.transaction.Transactional; // Để đảm bảo giao dịch DB
 import lombok.extern.slf4j.Slf4j; // Import Slf4j
+import org.springframework.transaction.annotation.Transactional; // Use Spring's Transactional for R2DBC
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.annotation.Value;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Slf4j // Add Slf4j annotation
 @Service
@@ -29,29 +25,18 @@ public class CardPinProcessingService {
     private final CardRepository cardRepository;
     private final PinRepository pinRepository;
     private final ExternalApiClient externalApiClient;
-    private final ExecutorService executorService;
     private final ObjectMapper objectMapper;
 
     public CardPinProcessingService(CardRepository cardRepository,
                                     PinRepository pinRepository,
-                                    ExternalApiClient externalApiClient,
-                                    @Value("${app.processing.thread-pool.core-size:2}") int corePoolSize,
-                                    @Value("${app.processing.thread-pool.max-size:4}") int maxPoolSize,
-                                    @Value("${app.processing.thread-pool.queue-capacity:50}") int queueCapacity) {
-        this.cardRepository = cardRepository;
-        this.pinRepository = pinRepository;
-        this.externalApiClient = externalApiClient;
-        this.executorService = new ThreadPoolExecutor(
-                corePoolSize,
-                maxPoolSize,
-                0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(queueCapacity),
-                new ThreadPoolExecutor.CallerRunsPolicy() // Handle when queue is full
-        );
-        this.objectMapper = new ObjectMapper();
-    }
+                                    ExternalApiClient externalApiClient) {
+      this.cardRepository = cardRepository;
+      this.pinRepository = pinRepository;
+      this.externalApiClient = externalApiClient;
+      this.objectMapper = new ObjectMapper();
+  }
 
-    public void processMixedList(List<Object> mixedItems, String requestId) {
+    public Flux<ProcessedItemResponse> processMixedList(List<Object> mixedItems, String requestId) {
         // Separate Cards and Pins into different lists
         List<Card> cards = mixedItems.stream()
                 .filter(item -> item instanceof Card)
@@ -67,82 +52,72 @@ public class CardPinProcessingService {
         cards.forEach(card -> card.setProcessingRequestId(requestId));
         pins.forEach(pin -> pin.setProcessingRequestId(requestId));
 
-        // Process Cards in parallel
-        List<CompletableFuture<Void>> cardFutures = cards.stream()
-                .map(card -> processSingleCard(card, requestId)
-                        .exceptionally(ex -> {
+        // Process Cards and Pins in parallel using Flux.merge
+        Flux<ProcessedItemResponse> cardProcessingFlux = Flux.fromIterable(cards)
+                .flatMap(card -> processSingleCard(card, requestId)
+                        .onErrorResume(ex -> { // Use onErrorResume to provide a fallback Mono
                             log.error("Error processing card {}: {}", card.getId(), ex.getMessage(), ex);
                             card.setStatus("FAILED_PROCESSING");
-                            cardRepository.save(card);
-                            return null;
-                        }))
-                .collect(Collectors.toList());
+                            // Save the card and return Mono.empty() to complete this specific item's stream
+                            return cardRepository.save(card).then(Mono.empty());
+                        }));
 
-        List<CompletableFuture<Void>> pinFutures = pins.stream()
-                .map(pin -> processSinglePin(pin, requestId)
-                        .exceptionally(ex -> {
+        Flux<ProcessedItemResponse> pinProcessingFlux = Flux.fromIterable(pins)
+                .flatMap(pin -> processSinglePin(pin, requestId)
+                        .onErrorResume(ex -> { // Use onErrorResume to provide a fallback Mono
                             log.error("Error processing pin {}: {}", pin.getId(), ex.getMessage(), ex);
                             pin.setStatus("FAILED_PROCESSING");
-                            pinRepository.save(pin);
-                            return null;
-                        }))
-                .collect(Collectors.toList());
+                            // Save the pin and return Mono.empty() to complete this specific item's stream
+                            return pinRepository.save(pin).then(Mono.empty());
+                        }));
 
-        // Combine all CompletableFutures and wait for all to complete
-        CompletableFuture<Void> allFutures = CompletableFuture.allOf(
-                CompletableFuture.allOf(cardFutures.toArray(new CompletableFuture[0])),
-                CompletableFuture.allOf(pinFutures.toArray(new CompletableFuture[0]))
-        );
-
-        // Có thể thêm logic sau khi tất cả hoàn thành, ví dụ: log tổng kết
-        allFutures.thenRun(() -> log.info("All mixed items processing completed for requestId: {}", requestId));
+        return Flux.merge(cardProcessingFlux, pinProcessingFlux)
+                .doFinally(signalType -> log.info("All mixed items processing completed for requestId: {}", requestId));
     }
  
-    @Transactional
-    protected CompletableFuture<Void> processSingleCard(Card card, String requestId) {
-        log.info("Processing card: {} with requestId: {}", card, requestId);
-        Map<String, Object> cardData = objectMapper.convertValue(card, Map.class);
-        log.info("Card Data being sent: {}", cardData);
-        UnifiedApiRequestDTO requestDTO = new UnifiedApiRequestDTO(ItemType.CARD, cardData, requestId);
+   protected Mono<ProcessedItemResponse> processSingleCard(Card card, String requestId) {
+       log.info("Processing card: {} with requestId: {}", card, requestId);
+       Map<String, Object> cardData = objectMapper.convertValue(card, Map.class);
+       log.info("Card Data being sent: {}", cardData);
+       UnifiedApiRequestDTO requestDTO = new UnifiedApiRequestDTO(ItemType.CARD, cardData, requestId);
 
-        return externalApiClient.callUnifiedApiService(requestDTO)
-                .doOnNext(this::handleProcessingResponse)
-                .doOnError(e -> log.error("Error processing card {}: {}", card.getId(), e.getMessage(), e))
-                .then()
-                .toFuture();
-    }
- 
-    @Transactional
-    protected CompletableFuture<Void> processSinglePin(Pin pin, String requestId) {
-        log.info("Processing pin: {} with requestId: {}", pin.getPinCode(), requestId);
-        Map<String, Object> pinData = objectMapper.convertValue(pin, Map.class);
-        log.info("Pin Data being sent: {}", pinData);
-        UnifiedApiRequestDTO requestDTO = new UnifiedApiRequestDTO(ItemType.PIN, pinData, requestId);
+       return externalApiClient.callUnifiedApiService(requestDTO)
+               .flatMap(response -> handleProcessingResponse(response)); // Use flatMap for reactive chaining
+   }
 
-        return externalApiClient.callUnifiedApiService(requestDTO)
-                .doOnNext(this::handleProcessingResponse)
-                .doOnError(e -> log.error("Error processing pin {}: {}", pin.getId(), e.getMessage(), e))
-                .then()
-                .toFuture();
-    }
- 
-    @Transactional
-    protected void handleProcessingResponse(ProcessedItemResponse response) {
-        if (response != null) {
-            log.info("Received response for {} with ID: {}, Status: {}, RequestId: {}", response.getType(), response.getId(), response.getStatus(), response.getRequestId());
-            if (response.getType() == ItemType.CARD) {
-                cardRepository.findById(response.getId()).ifPresent(card -> {
-                    card.setStatus(response.getStatus());
-                    cardRepository.save(card);
-                });
-            } else if (response.getType() == ItemType.PIN) {
-                pinRepository.findById(response.getId()).ifPresent(pin -> {
-                    pin.setStatus(response.getStatus());
-                    pinRepository.save(pin);
-                });
-            }
-        } else {
-            log.error("Received null response from Unified API Service.");
-        }
-    }
+   protected Mono<ProcessedItemResponse> processSinglePin(Pin pin, String requestId) {
+       log.info("Processing pin: {} with requestId: {}", pin.getPinCode(), requestId);
+       Map<String, Object> pinData = objectMapper.convertValue(pin, Map.class);
+       log.info("Pin Data being sent: {}", pinData);
+       UnifiedApiRequestDTO requestDTO = new UnifiedApiRequestDTO(ItemType.PIN, pinData, requestId);
+
+       return externalApiClient.callUnifiedApiService(requestDTO)
+               .flatMap(response -> handleProcessingResponse(response)); // Use flatMap for reactive chaining
+   }
+
+   @Transactional
+   protected Mono<ProcessedItemResponse> handleProcessingResponse(ProcessedItemResponse response) {
+       if (response != null) {
+           log.info("Received response for {} with ID: {}, Status: {}, RequestId: {}", response.getType(), response.getId(), response.getStatus(), response.getRequestId());
+           if (response.getType() == ItemType.CARD) {
+               return cardRepository.findById(response.getId())
+                       .flatMap(card -> {
+                           card.setStatus(response.getStatus());
+                           return cardRepository.save(card);
+                       })
+                       .switchIfEmpty(Mono.error(new RuntimeException("Card not found for ID: " + response.getId())))
+                       .thenReturn(response); // Return the original response
+           } else if (response.getType() == ItemType.PIN) {
+               return pinRepository.findById(response.getId())
+                       .flatMap(pin -> {
+                           pin.setStatus(response.getStatus());
+                           return pinRepository.save(pin);
+                       })
+                       .switchIfEmpty(Mono.error(new RuntimeException("Pin not found for ID: " + response.getId())))
+                       .thenReturn(response); // Return the original response
+           }
+       }
+       log.error("Received null response or unhandled item type from Unified API Service.");
+       return Mono.error(new RuntimeException("Received null response or unhandled item type."));
+   }
 }

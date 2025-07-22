@@ -13,8 +13,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import com.example.processingservice.repository.CardRepository;
 import com.example.processingservice.repository.PinRepository;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @SpringBootApplication
 public class ProcessingServiceApplication {
@@ -36,17 +36,31 @@ public class ProcessingServiceApplication {
             System.out.println("--- Starting data processing ---");
 
             // Fetch all Cards and Pins from the database
-            List<Object> mixedItems = Stream.concat(
-                    cardRepository.findAll().stream(),
-                    pinRepository.findAll().stream()
-            ).collect(Collectors.toList());
+            Mono<List<Card>> cardsMono = cardRepository.findAll().collectList();
+            Mono<List<Pin>> pinsMono = pinRepository.findAll().collectList();
 
-            // Generate a unique requestId for this batch
-            String requestId = java.util.UUID.randomUUID().toString();
-            System.out.println("Starting processing with RequestId: " + requestId);
-            cardPinProcessingService.processMixedList(mixedItems, requestId); // Wait for all async tasks to complete
+            Mono.zip(cardsMono, pinsMono)
+                .flatMap(tuple -> {
+                    List<Card> cards = tuple.getT1();
+                    List<Pin> pins = tuple.getT2();
+                    return Flux.fromIterable(cards)
+                               .cast(Object.class)
+                               .mergeWith(Flux.fromIterable(pins).cast(Object.class))
+                               .collectList()
+                               .flatMap(mixedItems -> {
+                                   // Generate a unique requestId for this batch
+                                   String requestId = java.util.UUID.randomUUID().toString();
+                                   System.out.println("Starting processing with RequestId: " + requestId);
+                                   return cardPinProcessingService.processMixedList(mixedItems, requestId)
+                                           .then(Mono.fromRunnable(() -> System.out.println("--- Data processing completed ---")));
+                               });
+                })
+                .subscribe(
+                    null, // onNext: not interested in the result of processMixedList Flux
+                    error -> System.err.println("Error during processing: " + error.getMessage()), // onError
+                    () -> System.out.println("All processing tasks initiated.") // onComplete
+                );
 
-            System.out.println("--- Data processing completed ---");
         };
     }
 

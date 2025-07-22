@@ -23,12 +23,12 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <artifactId>spring-boot-starter-data-r2dbc</artifactId>
         </dependency>
-      
         <dependency>
-            <groupId>com.microsoft.sqlserver</groupId>
-            <artifactId>mssql-jdbc</artifactId>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-mssql</artifactId>
+            <version>0.8.2.RELEASE</version> <!-- Specify a version to potentially fix resource leak -->
             <scope>runtime</scope>
         </dependency>
         <dependency>
