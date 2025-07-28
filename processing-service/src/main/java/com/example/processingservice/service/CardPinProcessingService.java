@@ -60,7 +60,7 @@ public class CardPinProcessingService {
                             card.setStatus("FAILED_PROCESSING");
                             // Save the card and return Mono.empty() to complete this specific item's stream
                             return cardRepository.save(card).then(Mono.empty());
-                        }));
+                        }),300);
 
         Flux<ProcessedItemResponse> pinProcessingFlux = Flux.fromIterable(pins)
                 .flatMap(pin -> processSinglePin(pin, requestId)
@@ -69,7 +69,7 @@ public class CardPinProcessingService {
                             pin.setStatus("FAILED_PROCESSING");
                             // Save the pin and return Mono.empty() to complete this specific item's stream
                             return pinRepository.save(pin).then(Mono.empty());
-                        }));
+                        }),300);
 
         return Flux.merge(cardProcessingFlux, pinProcessingFlux)
                 .doFinally(signalType -> log.info("All mixed items processing completed for requestId: {}", requestId));
